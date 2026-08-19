@@ -10,7 +10,8 @@ function RM_dispatch(payloadStr) {
       ping: RM_ping,
       listClips: RM_listClips,
       placeMarkers: RM_placeMarkers,
-      removeRecMarkers: RM_removeRecMarkers
+      removeRecMarkers: RM_removeRecMarkers,
+      razorAll: RM_razorAll
     };
     var fn = fns[payload.fn];
     if (!fn) { return JSON.stringify({ ok: false, error: 'unknown fn: ' + payload.fn }); }
@@ -81,6 +82,68 @@ function RM_placeMarkers(markers) {
     }
   }
   return { placed: placed, failed: failed };
+}
+
+// seconds -> timecode string for QE razor. Non-drop "HH:MM:SS:FF" for integer
+// frame rates; drop-frame "HH:MM:SS;FF" for 29.97/59.94 families.
+function RM_secToTimecode(sec, fps) {
+  var nominal = Math.round(fps);
+  var drop = Math.abs(fps - nominal) > 0.001;   // 29.97 / 59.94 etc.
+  var totalFrames = Math.round(sec * fps);
+  var ff, ss, mm, hh;
+  if (!drop) {
+    ff = totalFrames % nominal;
+    var totalSec = Math.floor(totalFrames / nominal);
+    ss = totalSec % 60; mm = Math.floor(totalSec / 60) % 60; hh = Math.floor(totalSec / 3600);
+    return RM_pad2(hh) + ':' + RM_pad2(mm) + ':' + RM_pad2(ss) + ':' + RM_pad2(ff);
+  }
+  // SMPTE drop-frame: drop (2 per 30fps) frame numbers every minute except every 10th
+  var dropPerMin = Math.round(nominal / 15);        // 2 @30, 4 @60
+  var framesPer10Min = Math.round(fps * 600);
+  var framesPerMin = nominal * 60 - dropPerMin;
+  var d = Math.floor(totalFrames / framesPer10Min);
+  var mRem = totalFrames % framesPer10Min;
+  if (mRem >= nominal * 60) {
+    totalFrames += dropPerMin * 9 * d + dropPerMin * Math.floor((mRem - nominal * 60) / framesPerMin) + dropPerMin;
+  } else {
+    totalFrames += dropPerMin * 9 * d;
+  }
+  ff = totalFrames % nominal;
+  ss = Math.floor(totalFrames / nominal) % 60;
+  mm = Math.floor(totalFrames / (nominal * 60)) % 60;
+  hh = Math.floor(totalFrames / (nominal * 3600));
+  return RM_pad2(hh) + ':' + RM_pad2(mm) + ':' + RM_pad2(ss) + ';' + RM_pad2(ff);
+}
+function RM_pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+// Razor every video + audio track at each of the given timeline seconds.
+// QE DOM — undocumented; every call guarded.
+function RM_razorAll(cuts) {
+  var seq = RM_activeSeq();
+  app.enableQE();
+  var qeSeq = qe.project.getActiveSequence();
+  if (!qeSeq) { throw new Error('QE: no active sequence'); }
+  var fps = 254016000000 / Number(seq.timebase);
+  var ok = 0, failed = [];
+  for (var i = 0; i < cuts.length; i++) {
+    var tc = RM_secToTimecode(cuts[i], fps);
+    var any = false, lastErr = null;
+    for (var v = 0; v < seq.videoTracks.numTracks; v++) {
+      try {
+        var vt = qeSeq.getVideoTrackAt(v);
+        if (vt && vt.razor) { vt.razor(tc); any = true; }
+      } catch (e) { lastErr = e; }
+    }
+    for (var a = 0; a < seq.audioTracks.numTracks; a++) {
+      try {
+        var at = qeSeq.getAudioTrackAt(a);
+        if (at && at.razor) { at.razor(tc); any = true; }
+      } catch (e2) { lastErr = e2; }
+    }
+    if (any) { ok++; }
+    else { failed.push({ sec: cuts[i], error: String(lastErr || 'razor unavailable') }); }
+  }
+  return { cuts: ok, failed: failed, fps: fps };
 }
 
 // Remove every marker this panel created (tagged in comments).

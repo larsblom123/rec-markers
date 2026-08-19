@@ -86,6 +86,23 @@
     <button id="btnRemove" class="danger">Remove placed markers</button>
   </div>
 
+  <h2>4 &middot; Cut around timestamps</h2>
+  <div class="hint">Razors every track at each timestamp minus/plus the offsets (uses the
+    same mode + order as step 3). Then select the junk between segments and ripple delete.</div>
+  <div class="row">
+    <span>Cut</span><input type="number" id="preCut" value="10" step="1" min="0">
+    <span>s before &nbsp;&middot;&nbsp;</span>
+    <input type="number" id="postCut" value="5" step="1" min="0">
+    <span>s after each timestamp</span>
+  </div>
+  <label class="opt"><input type="checkbox" id="combineOn" checked>
+    <b>Combine nearby timestamps</b> &mdash; merge into one segment when closer than
+    <input type="number" id="proxSec" value="15" step="1" min="0"> s
+    (pre-cut from the earliest, post-cut after the last)</label>
+  <div class="row">
+    <button id="btnCut" class="primary">Cut at timestamps</button>
+  </div>
+
   <div id="status"></div>
   <div id="log"></div>
 

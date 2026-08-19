@@ -36,6 +36,12 @@ and run `defaults write com.adobe.CSXS.12 PlayerDebugMode 1; killall cfprefsd`
 4. Markers are colour-coded per recording; the marker name is the record time and
    the comment carries the recording + wall-clock time.
    **Remove placed markers** deletes only markers this panel created.
+5. **Cut around timestamps** (step 4): razors every video+audio track at
+   `timestamp − pre` and `timestamp + post`. With **Combine nearby timestamps**
+   on, timestamps closer than the proximity merge into one segment — the pre-cut
+   is measured from the earliest timestamp, the post-cut after the last one.
+   Overlapping segments always merge, so you never get sliver cuts. The panel
+   only cuts; select the junk between segments afterwards and ripple delete.
 
 ## Debugging
 

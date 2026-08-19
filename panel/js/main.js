@@ -279,6 +279,74 @@
     });
   }
 
+  // ---------- cutting ----------
+  // timeline seconds -> merged [start,end] segments around them
+  function buildSegments(secs, pre, post, combine, prox) {
+    secs = secs.slice().sort(function (a, b) { return a - b; });
+    var groups = [];
+    var cur = null;
+    secs.forEach(function (s) {
+      if (cur && combine && s - cur.last <= prox) { cur.last = s; }
+      else { cur = { first: s, last: s }; groups.push(cur); }
+    });
+    // apply offsets, then merge any segments that overlap
+    var merged = [];
+    groups.forEach(function (g) {
+      var seg = [Math.max(0, g.first - pre), g.last + post];
+      var m = merged[merged.length - 1];
+      if (m && seg[0] <= m[1]) { if (seg[1] > m[1]) { m[1] = seg[1]; } }
+      else { merged.push(seg); }
+    });
+    return merged;
+  }
+
+  // resolve timestamps to timeline seconds using the selected mode, like step 3
+  function buildPointsForMode(cb) {
+    var mode = document.querySelector('input[name=mode]:checked').value;
+    if (mode === 'seq') { return cb(null, buildSequential()); }
+    setStatus('Reading timeline clips…');
+    callJsx('listClips', [], function (err, res) {
+      if (err) { return cb(err); }
+      cb(null, buildMatched(res.clips));
+    });
+  }
+
+  function doCut() {
+    var pre = Math.max(0, parseFloat($('preCut').value) || 0);
+    var post = Math.max(0, parseFloat($('postCut').value) || 0);
+    var combine = $('combineOn').checked;
+    var prox = Math.max(0, parseFloat($('proxSec').value) || 0);
+
+    buildPointsForMode(function (err, points) {
+      if (err) { setStatus(err.message, true); return; }
+      if (!points.length) { setStatus('No timestamps resolved — nothing to cut.', true); return; }
+      var segs = buildSegments(points.map(function (p) { return p.sec; }), pre, post, combine, prox);
+
+      var cuts = [];
+      segs.forEach(function (s) {
+        cuts.push(s[0]);
+        cuts.push(s[1]);
+      });
+      // dedupe cuts that land on (nearly) the same spot
+      cuts.sort(function (a, b) { return a - b; });
+      cuts = cuts.filter(function (c, i) { return i === 0 || c - cuts[i - 1] > 0.02; });
+
+      segs.forEach(function (s, i) {
+        uiLog('Segment ' + (i + 1) + ': ' + secToHms(s[0]) + ' → ' + secToHms(s[1]));
+      });
+      setStatus('Cutting at ' + cuts.length + ' points (' + segs.length + ' segments)…');
+      callJsx('razorAll', [cuts], function (err2, res) {
+        if (err2) { setStatus(err2.message, true); return; }
+        setStatus('Done — ' + res.cuts + ' cuts, ' + segs.length +
+          ' keep-segments. Ripple-delete the parts in between.' +
+          (res.failed.length ? ' ' + res.failed.length + ' cuts failed.' : ''));
+        res.failed.forEach(function (f) {
+          uiLog('Cut failed @ ' + secToHms(f.sec) + ': ' + f.error, true);
+        });
+      });
+    });
+  }
+
   // ---------- wiring ----------
   $('btnFile').onclick = function () { $('filePick').click(); };
   $('filePick').onchange = function () {
@@ -329,6 +397,12 @@
         placeMarkers(buildMatched(res.clips));
       });
     }
+  };
+
+  $('btnCut').onclick = function () {
+    if (!recordings.length) { setStatus('Parse a log first.', true); return; }
+    clearLog();
+    doCut();
   };
 
   $('btnRemove').onclick = function () {
